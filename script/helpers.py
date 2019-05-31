@@ -70,6 +70,14 @@ def detect_keyword(words, keyword):
     else:
         return 0
 
+def count_date(x):
+    datelist = re.findall(r'\w+\s\d{1,2},\s\d{4}', str(x))
+    if len(datelist) > 0:
+        dateinfo = " HAS_DATE"
+    else:
+        dateinfo = " NO_DATE"
+    return x + dateinfo
+
 def prepare_data(data, tokenize = False):
     """
     preparing data, fixing shape issues
@@ -81,6 +89,10 @@ def prepare_data(data, tokenize = False):
     if 'label' in data.columns:
         data.label = data.label.apply(lambda x: 1 if x == 'REAL' else 0)
     
+    # remove \n symbol and extract date information
+    data['text_edit'] = data.text.apply(lambda x: re.sub("\\n", "", str(x)))
+    data['text_edit'] = data.text_edit.apply(lambda x: count_date(x))
+
     if tokenize:
         data['title'] = data.title.apply(lambda x:" ".join(word_tokenize(x.lower())))
         data['text'] = data.text.apply(lambda x:" ".join(word_tokenize(x.lower())))
