@@ -2,11 +2,14 @@
 
 import pandas as pd
 import numpy as np
+import re
 from sklearn.model_selection import cross_val_score
 from sklearn.metrics import accuracy_score
 from nltk import word_tokenize, WordPunctTokenizer, pos_tag
 from nltk.corpus import stopwords
 import nltk
+from nltk.corpus import wordnet as wn
+from nltk.stem import PorterStemmer,WordNetLemmatizer
 SPLITS = 5
 
 def rearrange(df):
@@ -45,8 +48,8 @@ def eliminate_stopwords(wordslist):
     stopwords_en is predefined outside of the function
     """
     wordslist = [i for i in wordslist if i.isalpha()]
-    clean_list = [i for i in wordslist if i not in stopwords_en]
-    return clean_list
+    clean_list = [str(i) for i in wordslist if i not in stopwords_en]
+    return " ".join(clean_list)
 
 # postag
 def count_postags(words):
@@ -78,10 +81,11 @@ def count_date(x):
         dateinfo = " NO_DATE"
     return x + dateinfo
 
-def prepare_data(data, tokenize = False):
+def prepare_data(df, lower = False, date = False):
     """
     preparing data, fixing shape issues
     """
+    data = df.copy()
     # fix X1 X2 issue
     # 'if' needed since the submission dataset does not have the next two features
     if 'X1' in data.columns:
@@ -89,21 +93,53 @@ def prepare_data(data, tokenize = False):
     if 'label' in data.columns:
         data.label = data.label.apply(lambda x: 1 if x == 'REAL' else 0)
     
-    # remove \n symbol and extract date information
-    data['text_edit'] = data.text.apply(lambda x: re.sub("\\n", "", str(x)))
-    data['text_edit'] = data.text_edit.apply(lambda x: count_date(x))
-
-    if tokenize:
+    if lower:
         data['title'] = data.title.apply(lambda x:" ".join(word_tokenize(x.lower())))
         data['text'] = data.text.apply(lambda x:" ".join(word_tokenize(x.lower())))
+        
+    if date:   
+        # remove \n symbol and extract date information
+        data['text'] = data.text.apply(lambda x: re.sub("\\n", "", str(x)))
+        data['text'] = data.text.apply(lambda x: count_date(x))
     
     return data
 
+# Functions needed for preprocessing function
+def penn_to_wn(tag):
+    """
+    Convert between the PennTreebank tags to simple Wordnet tags
+    """
+    if tag.startswith('J'):
+        return wn.ADJ
+    elif tag.startswith('N'):
+        return wn.NOUN
+    elif tag.startswith('R'):
+        return wn.ADV
+    elif tag.startswith('V'):
+        return wn.VERB
+    return None
 
-def preprocess_data(data, drop_unprocessed = True):
+lemmatizer = WordNetLemmatizer()
+
+def lemma(text):    
+    tagged_sentence = pos_tag(word_tokenize(text))
+    lemm = [lemmatizer.lemmatize(word, pos=penn_to_wn(tag)) for word, tag in tagged_sentence if penn_to_wn(tag) != None ]
+    return " ".join(lemm)
+
+porter=PorterStemmer()
+def stemSentence(sentence):
+    token_words=word_tokenize(sentence.lower())
+    stem_sentence=[]
+    for word in token_words:
+        stem_sentence.append(porter.stem(word))
+        stem_sentence.append(" ")
+    return "".join(stem_sentence)
+
+def create_features(df, drop_unprocessed = True):
     """
     preprocessing + feature engineering
     """
+    data = df.copy()
     # tokenize the title and text
     data['title_token'] = data.title.apply(lambda x:word_tokenize(x.lower()))
     data['text_token'] = data.text.apply(lambda x:word_tokenize(x.lower()))
@@ -143,3 +179,29 @@ def preprocess_data(data, drop_unprocessed = True):
     
     return data
 
+def preprocess_data(df, postags = False, lemmatize = False, port = False):
+    """
+    Preprocessing steps
+    """
+    data = df.copy()
+    
+    data['title_token'] = data.title.apply(lambda x:word_tokenize(x.lower()))
+    data['text_token'] = data.text.apply(lambda x:word_tokenize(x.lower()))
+    
+    # eliminate the stopwords in title and text
+    data['title_stop'] = data.title_token.apply(lambda x:eliminate_stopwords(x))
+    data['text_stop'] = data.text_token.apply(lambda x:eliminate_stopwords(x))
+        
+    if postags:
+        data['title_pos'] = data.title_stop.apply(lambda x:count_postags(x))
+        data['text_pos'] = data.text_stop.apply(lambda x:count_postags(x))
+        
+    if lemmatize:
+        data['title_lem'] = data.title_stop.apply(lambda x: lemma(x))
+        data['text_lem'] = data.text_stop.apply(lambda x: lemma(x))
+        
+    if port:
+        data['text_port'] = data.title_stop.apply(lambda x: stemSentence(x))
+        data['title_port'] = data.text_stop.apply(lambda x: stemSentence(x))
+        
+    return data
